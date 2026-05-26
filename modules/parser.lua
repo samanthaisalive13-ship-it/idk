@@ -54,7 +54,7 @@ local function get_active_statuses(instance)
     if success then
         for k, v in pairs(attrs) do
             if _G.EngineData.Effects[k] then
-                active[k] = v -- Stores the duration/potency of the status effect
+                active[k] = v
             end
         end
     end
@@ -103,7 +103,8 @@ function parser.GetPlayerState()
         Class = get_safe_attribute(LocalPlayer, "Class", "Warrior"),
         isAlive = get_safe_attribute(LocalPlayer, "isAlive", false),
         Statuses = get_active_statuses(LocalPlayer),
-        CharStatuses = char and get_active_statuses(char) or {}
+        CharStatuses = char and get_active_statuses(char) or {},
+        Instance = LocalPlayer
     }
 end
 
@@ -130,7 +131,80 @@ function parser.GetSummons()
     return active_summons
 end
 
--- 5. CACHED INVENTORY & EQUIPMENT ACCESSORS
+-- 5. REAL-TIME UI ABILITY SCANNER
+function parser.GetUsableAbilities(is_summon)
+    local active_abilities = {}
+    local player_gui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not player_gui then return active_abilities end
+
+    local player_gui_folder = player_gui:FindFirstChild("PlayerGUI")
+    if not player_gui_folder then return active_abilities end
+
+    local abilities_frame
+    if is_summon then
+        local summon_info = player_gui_folder:FindFirstChild("SummonInfo")
+        if summon_info then
+            abilities_frame = summon_info:FindFirstChild("AbilitiesFrame")
+        end
+    else
+        local player_info = player_gui_folder:FindFirstChild("PlayerInfo")
+        if player_info then
+            abilities_frame = player_info:FindFirstChild("AbilitiesFrame")
+        end
+    end
+
+    if abilities_frame then
+        local scrolling_frame = abilities_frame:FindFirstChild("AbilitiesScrollingFrame")
+        if scrolling_frame then
+            for _, child in ipairs(scrolling_frame:GetChildren()) do
+                if child:IsA("ImageButton") or child:IsA("TextButton") then
+                    table.insert(active_abilities, child.Name)
+                end
+            end
+        end
+    end
+
+    if #active_abilities == 0 then
+        if is_summon then
+            active_abilities = { "Gnaw" }
+        else
+            active_abilities = { "Strike" }
+        end
+    end
+
+    return active_abilities
+end
+
+-- 6. REAL-TIME UI ITEM SCANNER
+function parser.GetUsableItems()
+    local active_items = {}
+    local player_gui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not player_gui then return active_items end
+
+    local player_gui_folder = player_gui:FindFirstChild("PlayerGUI")
+    if not player_gui_folder then return active_items end
+
+    local player_info = player_gui_folder:FindFirstChild("PlayerInfo")
+    if player_info then
+        local items_frame = player_info:FindFirstChild("ItemsFrame")
+        if items_frame then
+            local scrolling_frame = items_frame:FindFirstChild("ItemsScrollingFrame")
+            if scrolling_frame then
+                for _, child in ipairs(scrolling_frame:GetChildren()) do
+                    if child:IsA("ImageButton") or child:IsA("TextButton") then
+                        table.insert(active_items, {
+                            Name = child.Name,
+                            Amount = 1
+                        })
+                    end
+                end
+            end
+        end
+    end
+    return active_items
+end
+
+-- 7. CACHED INVENTORY & EQUIPMENT ACCESSORS
 function parser.GetInventory()
     return inventory_cache
 end
@@ -143,26 +217,25 @@ function parser.GetCooldowns(is_summon)
     return is_summon and summon_cooldowns_cache or cooldowns_cache
 end
 
--- 6. ACTIVE AREA PATHFINDER
+-- 8. ACTIVE AREA PATHFINDER
 function parser.GetCurrentArea()
     local battlemap = workspace:FindFirstChild("Battlemap")
     if battlemap then
         local current_map = battlemap:FindFirstChildOfClass("Folder")
         if current_map then
-            return current_map.Name -- Returns "Forest", "Dungeon", etc.
+            return current_map.Name
         end
     end
     return "Unknown"
 end
 
--- 7. INTERFACE & WINDOW STATE READER
+-- 9. INTERFACE & WINDOW STATE READER
 function parser.GetActiveUIState()
     local player_gui = LocalPlayer:FindFirstChild("PlayerGui")
     if not player_gui then 
         return { mode = "Hallway" } 
     end
     
-    -- Check if combat interface is active
     local player_gui_folder = player_gui:FindFirstChild("PlayerGUI")
     if player_gui_folder and player_gui_folder.Enabled then
         if player_gui_folder:FindFirstChild("PlayerInfo") and player_gui_folder.PlayerInfo.Visible then
@@ -170,7 +243,6 @@ function parser.GetActiveUIState()
         end
     end
     
-    -- Check if encounter decision window is open
     local encounter_gui = player_gui:FindFirstChild("EncounterGUI")
     if encounter_gui and encounter_gui.Enabled then
         local frame = encounter_gui:FindFirstChild("EncounterFrame")
@@ -179,7 +251,6 @@ function parser.GetActiveUIState()
         end
     end
     
-    -- Check if resting/stash interface is open
     local rest_gui = player_gui:FindFirstChild("RestGUI")
     if rest_gui and rest_gui.Enabled then
         local frame = rest_gui:FindFirstChild("RestFrame")
@@ -188,7 +259,6 @@ function parser.GetActiveUIState()
         end
     end
     
-    -- Check if game over or win screen is open
     local game_over_gui = player_gui:FindFirstChild("GameOver")
     if game_over_gui and game_over_gui.Enabled then
         local frame = game_over_gui:FindFirstChild("Frame")
@@ -197,7 +267,7 @@ function parser.GetActiveUIState()
         end
     end
     
-    return { mode = "Hallway" } -- Walking or transitioning between rooms
+    return { mode = "Hallway" }
 end
 
 return parser
